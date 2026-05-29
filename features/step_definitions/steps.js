@@ -1479,6 +1479,48 @@ Then('it reports no errors and no warnings', function () {
     `claude plugin validate . --strict must exit 0, got ${this.strictValidateExit}\nOutput: ${this.strictValidateOutput}`);
 });
 
+// --- CREAM-xzhidmjt: the publish gate is verified on a CI runner without claude ---
+Then('a CI workflow runs {string} on pull requests', function (command) {
+  const wf = path.join(REPO, '.github', 'workflows', 'ci.yml');
+  assert.ok(fs.existsSync(wf), '.github/workflows/ci.yml must exist');
+  const src = fs.readFileSync(wf, 'utf8');
+  assert.match(src, /^on:|\non:/, 'ci.yml must declare a trigger');
+  assert.ok(/pull_request/.test(src), 'ci.yml must trigger on pull_request');
+  assert.ok(src.includes(command),
+    `ci.yml must run "${command}" (the same command prepublishOnly runs), got:\n${src}`);
+});
+
+Then('the default cucumber profile excludes both @manual and @needs-cli', function () {
+  const cfg = JSON.parse(fs.readFileSync(path.join(REPO, 'cucumber.json'), 'utf8'));
+  const tags = cfg.default?.tags ?? '';
+  assert.ok(tags.includes('not @manual'), `default profile must exclude @manual, got: ${tags}`);
+  assert.ok(tags.includes('not @needs-cli'), `default profile must exclude @needs-cli, got: ${tags}`);
+});
+
+Then('prepublishOnly runs the default profile, never @needs-cli scenarios', function () {
+  const pkg = JSON.parse(fs.readFileSync(path.join(REPO, 'package.json'), 'utf8'));
+  const prepub = pkg.scripts?.prepublishOnly ?? '';
+  // prepublishOnly must run the default profile (no explicit profile that would
+  // re-include @needs-cli, and not a bare `cucumber-js --profile cli`).
+  assert.ok(prepub.includes('npm test') || /cucumber-js\s*$/.test(prepub),
+    `prepublishOnly must run the default profile, got: ${prepub}`);
+  assert.ok(!/--profile\s+(cli|manual)/.test(prepub),
+    `prepublishOnly must not run the cli/manual profiles, got: ${prepub}`);
+});
+
+// --- CREAM-gvrvnhsc: cc-cream-setup bin for the npm install flow ---
+Then('package.json bin maps {string} to {string}', function (binName, target) {
+  const pkg = JSON.parse(fs.readFileSync(path.join(REPO, 'package.json'), 'utf8'));
+  assert.ok(pkg.bin && typeof pkg.bin === 'object', 'package.json must declare a bin object');
+  assert.equal(pkg.bin[binName], target,
+    `bin["${binName}"] must be "${target}", got: ${JSON.stringify(pkg.bin[binName])}`);
+});
+
+Then(/^src\/install\.js starts with a node shebang so the bin is executable$/, function () {
+  const src = fs.readFileSync(path.join(REPO, 'src', 'install.js'), 'utf8');
+  assert.match(src, /^#!\/usr\/bin\/env node\n/, 'src/install.js must begin with a node shebang');
+});
+
 // ===========================================================================
 // 24 — User-facing docs & disclosure
 // ===========================================================================

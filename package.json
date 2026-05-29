@@ -12,6 +12,7 @@
     "pretest": "npm run lint && npm run knip && npm run validate",
     "test": "cucumber-js",
     "test:manual": "cucumber-js --profile manual",
+    "test:cli": "cucumber-js --profile cli",
     "coverage": "c8 cucumber-js",
     "watch": "cucumber-js --watch",
     "hooks": "simple-git-hooks",
@@ -21,7 +22,8 @@
     "pre-push": "npm run coverage"
   },
   "bin": {
-    "cc-cream": "src/cc-cream.js"
+    "cc-cream": "src/cc-cream.js",
+    "cc-cream-setup": "src/install.js"
   },
   "files": [
     "src/",

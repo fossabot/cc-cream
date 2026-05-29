@@ -52,3 +52,10 @@ Feature: Consent-based installer for the statusLine command
     Given settings.json on disk is not valid JSON
     When install.js runs against it
     Then it exits non-zero and leaves the file byte-for-byte unchanged
+
+  # CREAM-gvrvnhsc. npm users get a first-class CLI for wiring/unwiring the bar
+  # (cc-cream-setup / cc-cream-setup --uninstall) instead of running install.js
+  # by its full node_modules path.
+  Scenario: The npm package exposes a cc-cream-setup CLI for the installer
+    Then package.json bin maps "cc-cream-setup" to "src/install.js"
+    And src/install.js starts with a node shebang so the bin is executable

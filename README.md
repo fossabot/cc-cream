@@ -76,20 +76,21 @@ The `/cc-cream:setup` command runs the consent installer, which writes the
 `/plugin update` drops a new version into the cache, the next render picks it
 up without any further action.
 
-### Option 2 — npm / npx
+### Option 2 — npm
 
-```bash
-npx -y cc-cream@latest
-```
-
-Or install globally:
 ```bash
 npm install -g cc-cream
 ```
 
-Then run the consent installer to wire it into Claude Code:
+Then wire it into Claude Code with the bundled CLI:
 ```bash
-node $(npm root -g)/cc-cream/src/install.js
+cc-cream-setup
+```
+
+`cc-cream-setup` runs the consent installer (`src/install.js`). Without a global
+install you can run it through npx:
+```bash
+npx -y -p cc-cream cc-cream-setup
 ```
 
 ### Option 3 — Manual GitHub clone
@@ -119,8 +120,8 @@ Plugin users:
 
 npm / manual users:
 ```bash
-node $(npm root -g)/cc-cream/src/install.js --uninstall   # npm
-node cc-cream/src/install.js --uninstall                  # manual clone
+cc-cream-setup --uninstall                 # npm (add --purge to also remove config)
+node cc-cream/src/install.js --uninstall   # manual clone
 ```
 
 Uninstall removes the `statusLine` block **only if it is cc-cream's** — a

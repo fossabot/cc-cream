@@ -18,6 +18,10 @@ Feature: Plugin validation gate (CREAM-ldigvksg)
     When the validate script runs
     Then it exits zero with a skip notice and does not block the build
 
+  # @needs-cli: this scenario shells out to a live `claude` to prove the gate
+  # actually blocks a bad manifest. CI runners lack the CLI, so it is excluded
+  # from the default (publish-gating) profile and run via `npm run test:cli`.
+  @needs-cli
   Scenario: A manifest error fails the everyday gate
     Given a plugin.json with an invalid field type
     And the "claude" CLI is installed
@@ -32,3 +36,15 @@ Feature: Plugin validation gate (CREAM-ldigvksg)
     Given the plugin and marketplace manifests
     When "claude plugin validate . --strict" runs before submission
     Then it reports no errors and no warnings
+
+  # CREAM-xzhidmjt. prepublishOnly runs `npm test` at publish time. The class of
+  # bug: any scenario that shells out to a host CLI absent on CI runners can break
+  # `npm publish`, and only at release time. The durable guard is a CI workflow
+  # that runs the exact publish gate on a clean runner (no claude CLI) on every
+  # PR, so the failure surfaces in review instead of at publish. CLI-shelling
+  # scenarios are tagged @needs-cli and excluded from the default profile, so the
+  # publish gate is CI-safe by construction.
+  Scenario: The publish gate is verified on a CI runner without the claude CLI
+    Then a CI workflow runs "npm test" on pull requests
+    And the default cucumber profile excludes both @manual and @needs-cli
+    And prepublishOnly runs the default profile, never @needs-cli scenarios

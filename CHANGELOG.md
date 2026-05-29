@@ -4,6 +4,15 @@ All notable changes to cc-cream are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.8] — 2026-05-29
+
+### Added
+- **`cc-cream-setup` bin for npm users** (CREAM-gvrvnhsc). `npm install -g cc-cream` now exposes a first-class `cc-cream-setup` command (and `cc-cream-setup --uninstall` / `--purge`) that runs the consent installer, replacing the clunky `node $(npm root -g)/cc-cream/src/install.js`. The existing `cc-cream` bin remains the status-line renderer.
+- **CI workflow that runs the publish gate on a CLI-less runner** (CREAM-xzhidmjt). `.github/workflows/ci.yml` runs `npm test` — the exact command `prepublishOnly` runs — on every PR and push to `main`, and asserts the `claude` CLI is absent so it mirrors the npm-publish environment.
+
+### Changed
+- **Publish gate is now CI-safe by construction** (CREAM-xzhidmjt). Scenarios that shell out to a live `claude` are tagged `@needs-cli` and excluded from the default cucumber profile (`not @manual and not @needs-cli`); run them with `npm run test:cli`. Previously such a scenario could go `pending` on a runner without the CLI and silently break `npm publish` — now any regression of that kind fails on the PR instead.
+
 ## [0.1.7] — 2026-05-29
 
 ### Fixed

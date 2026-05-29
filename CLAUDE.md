@@ -20,6 +20,7 @@ npm run lint                                         # Biome lint on src/ only
 npm run knip                                         # dead-code / unused-export audit
 npm run validate                                     # claude plugin validate . (skips if claude CLI absent)
 npm run test:manual                                  # run @manual scenarios (release runbook, --strict validation)
+npm run test:cli                                      # run @needs-cli scenarios (shell out to a live `claude` — needs the CLI)
 npx cucumber-js features/03-context-segment.feature # run a single feature file
 npx cucumber-js --name "some scenario title"        # run matching scenarios by name
 npm pack --dry-run                                   # verify published tarball contents
@@ -27,7 +28,7 @@ npm pack --dry-run                                   # verify published tarball 
 
 ## Source of truth (read before working)
 - `docs/PRD.md` and `docs/PRDv2.md` — full spec (v2 + **§14 decisions, which supersede any conflicting earlier prose**).
-- `features/NN-*.feature` — Gherkin user stories, one per slice (00–25, 26 files). The feature file IS the acceptance spec. Scenarios tagged `@manual` are not run in CI (use `npm run test:manual`).
+- `features/NN-*.feature` — Gherkin user stories, one per slice (00–25, 26 files). The feature file IS the acceptance spec. Scenarios tagged `@manual` are not run in CI (use `npm run test:manual`). Scenarios that shell out to a host CLI (e.g. a live `claude`) **must** be tagged `@needs-cli` — they're excluded from the default profile so they can't break `npm publish` on a CLI-less runner; run them with `npm run test:cli`.
 - FP epic `CREAM-lwiwezhg` — the backlog. `fp tree` for deps / build order.
 
 ## Architecture
@@ -43,7 +44,7 @@ Key source modules (all Node built-ins only, ESM, no runtime deps):
 - `src/ttl.js` — TTL resolution (`resolveTtl()`, `hasWindow()`).
 - `src/utils.js` — `paint()`, `band()`, `countdown()`, `isPeak()`, `fmtNum()`, etc.
 - `src/state.js` — session state: `readState()` / `writeState()` to `~/.claude/cc-cream-state.json`, keyed by `session_id`.
-- `src/install.js` — consent-based installer; pure `plan()` function plus thin I/O shell. Writes a `statusLine` block into `~/.claude/settings.json`.
+- `src/install.js` — consent-based installer; pure `plan()` function plus thin I/O shell. Writes a `statusLine` block into `~/.claude/settings.json`. Exposed to npm users as the `cc-cream-setup` bin (`cc-cream-setup` / `cc-cream-setup --uninstall` / `--purge`); the `cc-cream` bin is the renderer (`src/cc-cream.js`).
 
 Plugin distribution layer:
 - `.claude-plugin/plugin.json` — Claude Code plugin manifest (name, version, author). **Does not** declare `commands`.
@@ -70,6 +71,7 @@ Fourteen segments (all configurable via `~/.claude/cc-cream.json`):
 - **Biome** — lints `src/` on every `npm test` (pretest hook). Rules: `noCommonJs` + `noUndeclaredDependencies` as errors, recommended rules as warnings.
 - **knip** — dead-code / unused-export audit, also runs in pretest. Config: `knip.json`.
 - **validate** — `claude plugin validate .` runs in pretest; skips gracefully when the `claude` CLI is absent. `--strict` (warnings-as-errors) is reserved for `npm run test:manual` pre-submission only.
+- **CI** — `.github/workflows/ci.yml` runs the exact publish gate (`npm test`) on every PR + push to `main`, on a runner with **no `claude` CLI** (it asserts the CLI is absent, mirroring the npm-publish environment). This is the guard for CREAM-xzhidmjt: any `@needs-cli`-untagged scenario that shells out to a missing CLI fails here, at review time, instead of silently breaking `npm publish`. The default cucumber profile is `not @manual and not @needs-cli`, so the gate is CI-safe by construction.
 - **c8** — V8 coverage via `npm run coverage`. Current baseline: ~94% statements across `src/`.
 - **simple-git-hooks** — pre-push hook runs `npm run coverage`; register it once with `npm run hooks` (kept off the `prepare` lifecycle so the published package ships no install-time scripts). Skip with `SKIP_SIMPLE_GIT_HOOKS=1 git push`.
 
