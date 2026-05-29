@@ -49,7 +49,7 @@ function isInstalled(existing, command) {
 // (dev repo, copied home runtime, or the plugin cache-glob) — every command
 // references the cc-cream entrypoint. Used by uninstall so we never touch a
 // statusLine the user wired for something else.
-function isCcCreamStatusLine(existing) {
+export function isCcCreamStatusLine(existing) {
   return (
     !!existing &&
     typeof existing === 'object' &&
@@ -187,7 +187,7 @@ function copyRuntimeFiles(sourceFile, destDir) {
 // PATH, so a bare `node` is unsafe. We prefer the shell's `command -v node`
 // (the path the user's interactive shell would pick), falling back to
 // process.execPath (the node currently running setup) if that fails.
-function resolveNodePath() {
+export function resolveNodePath() {
   try {
     const found = execSync('command -v node', { encoding: 'utf8' }).trim();
     if (found) return found;

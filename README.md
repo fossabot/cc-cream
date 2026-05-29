@@ -66,16 +66,21 @@ To use the self-hosted marketplace directly:
 /plugin install cc-cream
 ```
 
-Then wire it into your settings in one step:
+That's usually all you need: on the first session after install, cc-cream
+**auto-wires** its `statusLine` into `~/.claude/settings.json` (you may need to
+restart or trust the workspace for the bar to appear). It only does this when no
+status line is configured — it never overwrites one you set for something else,
+and it never re-adds the bar after you remove it.
+
+If you already have a status line and want to replace it with cc-cream's, run:
 ```
 /cc-cream:setup
 ```
 
 The `/cc-cream:setup` command runs the consent installer, which writes the
-`statusLine` block to `~/.claude/settings.json`. Until you run it, cc-cream
-prints a one-line reminder at the start of each session (it stops once the bar
-is wired). Updates are automatic: when `/plugin update` drops a new version into
-the cache, the next render picks it up without any further action.
+`statusLine` block to `~/.claude/settings.json`. Updates are automatic: when
+`/plugin update` drops a new version into the cache, the next render picks it up
+without any further action.
 
 ### Option 2 — npm
 

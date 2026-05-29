@@ -4,6 +4,11 @@ All notable changes to cc-cream are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.14] — 2026-05-29
+
+### Changed
+- **The status bar now turns itself on — no manual `/cc-cream:setup` for fresh installs** (CREAM-nywsljfq). Claude Code can't let a plugin contribute the main status line natively (only `agent`/`subagentStatusLine` are plugin-settable — verified by probe), so the bar still needs a write to `settings.json`. Instead of making you run `/cc-cream:setup`, the `SessionStart` hook (`hooks/auto-setup.js`, renamed from `setup-reminder.js`) now **auto-wires** cc-cream's `statusLine` on the first session after install — but **only when no status line is configured**. It never clobbers a status line you set for something else (that still routes through the interactive `/cc-cream:setup`), and a one-shot marker means it never re-adds the bar after you remove it with `/cc-cream:uninstall`. The nudge to run `/cc-cream:setup` now appears only in the foreign-status-line case. Output stays a single `systemMessage` (zero model tokens). You may need to restart/trust the workspace for the bar to appear.
+
 ## [0.1.13] — 2026-05-29
 
 ### Fixed

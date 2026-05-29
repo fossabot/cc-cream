@@ -1650,14 +1650,14 @@ Then(/^hooks\/hooks\.json exists and registers a SessionStart command hook$/, fu
   this.hookCommand = inner.command;
 });
 
-Then(/^the hook command runs hooks\/setup-reminder\.js via \$\{CLAUDE_PLUGIN_ROOT\}$/, function () {
+Then(/^the hook command runs hooks\/auto-setup\.js via \$\{CLAUDE_PLUGIN_ROOT\}$/, function () {
   assert.ok(this.hookCommand.includes('${CLAUDE_PLUGIN_ROOT}'),
     `hook command must use \${CLAUDE_PLUGIN_ROOT}, got: ${this.hookCommand}`);
-  assert.ok(this.hookCommand.includes('hooks/setup-reminder.js'),
-    `hook command must run hooks/setup-reminder.js, got: ${this.hookCommand}`);
+  assert.ok(this.hookCommand.includes('hooks/auto-setup.js'),
+    `hook command must run hooks/auto-setup.js, got: ${this.hookCommand}`);
   // And that script must actually exist in the plugin.
-  assert.ok(fs.existsSync(path.join(REPO, 'hooks', 'setup-reminder.js')),
-    'hooks/setup-reminder.js must exist');
+  assert.ok(fs.existsSync(path.join(REPO, 'hooks', 'auto-setup.js')),
+    'hooks/auto-setup.js must exist');
 });
 
 Given('there is no settings.json on disk', function () {
@@ -1665,16 +1665,53 @@ Given('there is no settings.json on disk', function () {
   if (fs.existsSync(file)) fs.rmSync(file);
 });
 
-When('the setup-reminder hook runs', function () {
-  const env = { ...process.env, HOME: this.home };
+const pluginDataDir = (world) => path.join(world.home, 'plugin-data');
+
+Given('cc-cream has already auto-set-up once', function () {
+  const dir = pluginDataDir(this);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'cc-cream-autowire-done'), '');
+});
+
+When('the session-start hook runs', function () {
+  const settingsFile = path.join(this.home, '.claude', 'settings.json');
+  this.settingsBefore = fs.existsSync(settingsFile) ? fs.readFileSync(settingsFile, 'utf8') : null;
+  const env = { ...process.env, HOME: this.home, CLAUDE_PLUGIN_DATA: pluginDataDir(this) };
   delete env.CLAUDE_CONFIG_DIR; // force the hook to resolve ~/.claude under the sandbox HOME
-  const res = spawnSync(process.execPath, [path.join(REPO, 'hooks', 'setup-reminder.js')], {
+  const res = spawnSync(process.execPath, [path.join(REPO, 'hooks', 'auto-setup.js')], {
     env,
     encoding: 'utf8',
     timeout: 15000,
   });
   this.reminderExit = res.status;
   this.reminderOut = (res.stdout ?? '').trim();
+});
+
+Then("it writes cc-cream's statusLine into settings.json", function () {
+  const sl = readSandboxStatusLine(this);
+  assert.ok(sl && typeof sl.command === 'string' && sl.command.includes('cc-cream'),
+    `auto-wire must write a cc-cream statusLine, got: ${JSON.stringify(sl)}`);
+  assert.ok(/grep -E '\/\[0-9\]/.test(sl.command),
+    `auto-wired command must use the hardened semver glob, got: ${sl.command}`);
+  assert.equal(sl.refreshInterval, 60, 'auto-wired statusLine must set refreshInterval 60');
+});
+
+Then('it announces that the status bar was enabled', function () {
+  this.reminderJson = JSON.parse(this.reminderOut);
+  assert.ok(/enabled your status bar/i.test(this.reminderJson.systemMessage ?? ''),
+    `systemMessage must announce the bar was enabled, got: ${this.reminderOut}`);
+});
+
+Then('it leaves the foreign statusLine unchanged', function () {
+  assert.deepEqual(readSandboxStatusLine(this), this.foreignStatusLine,
+    'a foreign statusLine must be left untouched');
+});
+
+Then('it changes nothing and prints nothing', function () {
+  assert.equal(this.reminderOut, '', `expected no output, got: ${this.reminderOut}`);
+  const settingsFile = path.join(this.home, '.claude', 'settings.json');
+  const after = fs.existsSync(settingsFile) ? fs.readFileSync(settingsFile, 'utf8') : null;
+  assert.equal(after, this.settingsBefore, 'settings.json must be byte-for-byte unchanged');
 });
 
 Then(/^it prints a systemMessage telling the user to run \/cc-cream:setup$/, function () {
@@ -1695,11 +1732,7 @@ Then('the reminder adds nothing to the model context', function () {
 });
 
 Then('the reminder exits zero', function () {
-  assert.equal(this.reminderExit, 0, `setup-reminder hook must exit 0, got ${this.reminderExit}`);
-});
-
-Then('it prints nothing', function () {
-  assert.equal(this.reminderOut, '', `expected no output, got: ${this.reminderOut}`);
+  assert.equal(this.reminderExit, 0, `auto-setup hook must exit 0, got ${this.reminderExit}`);
 });
 
 // ===========================================================================

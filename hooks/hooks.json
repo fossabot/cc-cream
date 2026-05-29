@@ -1,12 +1,12 @@
 {
-  "description": "Nudge the user to run /cc-cream:setup while the status bar isn't wired yet.",
+  "description": "On first session after install, auto-wire cc-cream's status bar when the slot is free (else point to /cc-cream:setup).",
   "hooks": {
     "SessionStart": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/setup-reminder.js\""
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/auto-setup.js\""
           }
         ]
       }
