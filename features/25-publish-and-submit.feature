@@ -12,8 +12,8 @@ Feature: Publish and submit to the community catalog (CREAM-vtjzppjr)
 
   # --- Automated gates (verifiable in CI) ---
 
-  Scenario: The release version is pinned in package.json
-    Then package.json version is exactly "0.1.1"
+  Scenario: The release version matches the latest CHANGELOG entry
+    Then package.json version matches the latest CHANGELOG entry
 
   Scenario: The self-hosted marketplace install path is documented
     Then the README documents adding the marketplace with "/plugin marketplace add bart-turczynski/cc-cream"

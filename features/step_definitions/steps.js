@@ -1593,10 +1593,13 @@ Then('it notes Windows support is a planned fast-follow', function () {
 // 25 — Publish & submit (automated gates)
 // ===========================================================================
 
-Then('package.json version is exactly {string}', function (expected) {
+Then('package.json version matches the latest CHANGELOG entry', function () {
   const pkg = JSON.parse(fs.readFileSync(path.join(REPO, 'package.json'), 'utf8'));
-  assert.equal(pkg.version, expected,
-    `package.json version must be exactly "${expected}", got: ${pkg.version}`);
+  const changelog = fs.readFileSync(path.join(REPO, 'CHANGELOG.md'), 'utf8');
+  const match = changelog.match(/^##\s*\[(\d+\.\d+\.\d+)\]/m);
+  assert.ok(match, 'CHANGELOG.md must have a "## [x.y.z]" version heading');
+  assert.equal(pkg.version, match[1],
+    `package.json version (${pkg.version}) must match the latest CHANGELOG entry ([${match[1]}])`);
 });
 
 Then('the README documents adding the marketplace with {string}', function (command) {
