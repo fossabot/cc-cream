@@ -4,7 +4,7 @@ All notable changes to cc-cream are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.18] — 2026-05-29
 
 ### Security
 - **Status-line text is now stripped of terminal control characters before output.** Three stdin-derived fields — `model.display_name`, `session_name`, and `effort.level` — were written to the terminal verbatim on every render. Because `session_name` can be derived from conversation content (which may include untrusted material), an embedded ANSI/OSC escape sequence would have been interpreted by the terminal (window-title/clipboard rewrites via OSC, or cursor/erase sequences that spoof or hide output). `paint()` now passes every segment through a `sanitize()` pass that drops C0/C1 control bytes (incl. ESC, BEL, DEL) while preserving the tool's own color codes, which are added afterward. The bar is purely visual, so the strip is lossless.
@@ -155,6 +155,7 @@ line and prints a colored ≤3-row bar — zero tokens, the model never sees it.
 - Supports **macOS and Linux**; Windows is a planned fast-follow.
 - Requires Claude Code **2.1.132+** (`effort` / `thinking` need 2.1.145+).
 
+[0.1.18]: https://github.com/bart-turczynski/cc-cream/compare/v0.1.17...v0.1.18
 [0.1.17]: https://github.com/bart-turczynski/cc-cream/compare/v0.1.16...v0.1.17
 [0.1.16]: https://github.com/bart-turczynski/cc-cream/compare/v0.1.15...v0.1.16
 [0.1.15]: https://github.com/bart-turczynski/cc-cream/compare/v0.1.14...v0.1.15
