@@ -4,6 +4,11 @@ All notable changes to cc-cream are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.9] — 2026-05-29
+
+### Fixed
+- **`/cc-cream:setup` and `/cc-cream:uninstall` no longer hang on a y/N prompt** (CREAM-vxbbrypj). The slash commands run `install.js` via Claude Code's bang execution, which has no interactive TTY, so install.js's readline prompts blocked forever — the uninstaller's "delete runtime/state?" prompt was the dead end. install.js now detects a missing TTY and resolves prompts non-interactively: uninstall removes the `statusLine` and **keeps** the runtime/state artifacts (re-run in a terminal or pass `--purge` to delete them); setup overwrites an existing *cc-cream* `statusLine` but never clobbers a foreign one without a terminal or the new `--force`/`--yes` flag. Interactive terminals are unchanged. (Plugin removal still takes two steps — `/cc-cream:uninstall` then `/plugin uninstall cc-cream` — because Claude Code has no plugin-uninstall hook to clean `settings.json` automatically.)
+
 ## [0.1.8] — 2026-05-29
 
 ### Added

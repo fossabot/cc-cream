@@ -223,12 +223,22 @@ async function uninstall({ purge }) {
 
   const artifacts = [runtimeDir, stateFile].filter((p) => fs.existsSync(p));
   if (artifacts.length) {
-    const remove = purge || (await ask(`Also delete the copied runtime and session state?\n  ${artifacts.join('\n  ')}`));
+    let remove = purge;
+    if (!remove && process.stdin.isTTY) {
+      remove = await ask(`Also delete the copied runtime and session state?\n  ${artifacts.join('\n  ')}`);
+    }
     if (remove) {
       for (const p of artifacts) fs.rmSync(p, { recursive: true, force: true });
       console.log('Removed runtime and state files.');
-    } else {
+    } else if (process.stdin.isTTY) {
       console.log('Left runtime and state files in place.');
+    } else {
+      // Non-interactive (e.g. run via the /cc-cream:uninstall slash command, which
+      // has no TTY): never block on a prompt. The statusLine — the thing that
+      // matters — is already removed; keep the artifacts (deletion is destructive)
+      // and say how to remove them.
+      console.log(`Left runtime and session state in place — no terminal to confirm deletion:\n  ${artifacts.join('\n  ')}`);
+      console.log('Re-run in a terminal, or pass --purge, to remove them.');
     }
   }
   if (purge && fs.existsSync(configFile)) {
@@ -248,6 +258,7 @@ async function main() {
     return;
   }
   const plugin = args.includes('--plugin');
+  const force = args.includes('--force') || args.includes('--yes');
   // First non-flag arg is an optional local source path (manual mode only).
   const positional = args.filter((a) => !a.startsWith('--'));
 
@@ -284,7 +295,19 @@ async function main() {
   // If a replace needs consent, ask now and re-plan with the answer.
   if (!result.changed && result.needsConsent) {
     for (const m of result.messages) console.log(m);
-    const yes = await ask('Replace it with cc-cream?');
+    let yes;
+    if (process.stdin.isTTY) {
+      yes = await ask('Replace it with cc-cream?');
+    } else {
+      // Non-interactive (e.g. run via the /cc-cream:setup slash command, which has
+      // no TTY): never block on a prompt. Safe to overwrite our OWN wiring (an
+      // older/other-strategy cc-cream statusLine); never clobber a FOREIGN
+      // statusLine without a terminal or an explicit --force.
+      yes = force || isCcCreamStatusLine(settings.statusLine);
+      console.log(yes
+        ? 'Non-interactive: replacing the existing cc-cream statusLine.'
+        : 'Non-interactive: left your existing statusLine unchanged. Re-run in a terminal, or pass --force, to replace it.');
+    }
     result = plan(settings, { ...planOpts, consent: yes });
   }
 

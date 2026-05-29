@@ -112,23 +112,29 @@ and you may need to **restart** it for the bar to appear.
 
 ### Uninstall
 
-Plugin users:
+Plugin users — two steps (Claude Code can't clean `settings.json` when a plugin
+is removed, so the wiring is cleared separately from the cache):
 ```
-/cc-cream:uninstall
-/plugin uninstall cc-cream
+/cc-cream:uninstall          # removes the statusLine wiring
+/plugin uninstall cc-cream   # drops the plugin from the cache
 ```
 
 npm / manual users:
 ```bash
-cc-cream-setup --uninstall                 # npm (add --purge to also remove config)
+cc-cream-setup --uninstall                 # npm (add --purge to also remove runtime + config)
 node cc-cream/src/install.js --uninstall   # manual clone
 ```
 
 Uninstall removes the `statusLine` block **only if it is cc-cream's** — a
-statusLine you wired for something else is left untouched. It then offers to
-delete the copied runtime and session-state files, and **keeps your
-`~/.claude/cc-cream.json` config** unless you add `--purge`. Restart Claude Code
-to clear the bar.
+statusLine you wired for something else is left untouched. In a terminal it asks
+before deleting the copied runtime and session-state files; run **non-interactively**
+(as the `/cc-cream:uninstall` slash command does) it leaves those artifacts in
+place — pass `--purge` to remove them and your `~/.claude/cc-cream.json` config.
+Restart Claude Code to clear the bar.
+
+Likewise, `cc-cream-setup` run non-interactively will overwrite an existing
+*cc-cream* statusLine but never a foreign one — pass `--force` to replace
+regardless.
 
 ## Configuration
 

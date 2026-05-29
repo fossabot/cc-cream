@@ -59,3 +59,23 @@ Feature: Consent-based installer for the statusLine command
   Scenario: The npm package exposes a cc-cream-setup CLI for the installer
     Then package.json bin maps "cc-cream-setup" to "src/install.js"
     And src/install.js starts with a node shebang so the bin is executable
+
+  # The installer's y/N prompts use readline, which has no TTY when install.js is
+  # run via the /cc-cream:setup and /cc-cream:uninstall slash commands (bang
+  # execution). Without a guard the prompt blocks forever. install.js must detect
+  # the missing TTY and resolve every prompt non-interactively instead of hanging.
+  Scenario: Uninstall does not block on a prompt when run without a TTY
+    Given settings.json on disk has cc-cream's statusLine and a state file
+    When install.js --uninstall runs without a TTY
+    Then it exits zero and removes the statusLine
+    And it keeps the state file and prints how to remove it with --purge
+
+  Scenario: Non-interactive setup never clobbers a foreign statusLine
+    Given settings.json on disk has a foreign statusLine
+    When install.js runs without a TTY
+    Then it exits zero and leaves the foreign statusLine unchanged
+
+  Scenario: Non-interactive setup replaces an existing cc-cream statusLine
+    Given settings.json on disk has an older cc-cream statusLine
+    When install.js runs without a TTY
+    Then it exits zero and rewrites the statusLine to cc-cream's

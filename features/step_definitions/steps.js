@@ -1521,6 +1521,88 @@ Then(/^src\/install\.js starts with a node shebang so the bin is executable$/, f
   assert.match(src, /^#!\/usr\/bin\/env node\n/, 'src/install.js must begin with a node shebang');
 });
 
+// --- Non-TTY safety: install.js must never block on a y/N prompt when run via a
+// slash command (bang execution has no interactive TTY). Spawning a child with a
+// pipe for stdin reproduces that environment. A timeout guards against a
+// regression hanging the whole suite — a hang would fail the exit-code assertion.
+const PLUGIN_STATUSLINE = {
+  type: 'command',
+  command: 'node "$(ls -1d "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/plugins/cache/*/cc-cream/*/ 2>/dev/null | sort -V | tail -1)src/cc-cream.js"',
+  refreshInterval: 60,
+};
+function writeSandboxSettings(world, settings) {
+  fs.writeFileSync(
+    path.join(world.home, '.claude', 'settings.json'),
+    `${JSON.stringify(settings, null, 2)}\n`,
+  );
+}
+function readSandboxStatusLine(world) {
+  const raw = fs.readFileSync(path.join(world.home, '.claude', 'settings.json'), 'utf8');
+  return JSON.parse(raw).statusLine;
+}
+
+Given("settings.json on disk has cc-cream's statusLine and a state file", function () {
+  writeSandboxSettings(this, { statusLine: PLUGIN_STATUSLINE });
+  fs.writeFileSync(stateFilePath(this), JSON.stringify({ session: 'x' }));
+});
+
+Given('settings.json on disk has a foreign statusLine', function () {
+  this.foreignStatusLine = { type: 'command', command: 'bash /old/statusline.sh', refreshInterval: 5 };
+  writeSandboxSettings(this, { statusLine: this.foreignStatusLine });
+});
+
+Given('settings.json on disk has an older cc-cream statusLine', function () {
+  // A cc-cream line in a *different* form than manual-mode setup will write, so it
+  // needs consent — and non-interactively that consent is auto-granted (it's ours).
+  writeSandboxSettings(this, { statusLine: PLUGIN_STATUSLINE });
+});
+
+When('install.js --uninstall runs without a TTY', function () {
+  const res = spawnSync(process.execPath, [path.join(REPO, 'src', 'install.js'), '--uninstall'], {
+    env: { ...process.env, HOME: this.home },
+    encoding: 'utf8',
+    timeout: 15000,
+  });
+  this.installerExit = res.status;
+  this.installerOut = (res.stdout ?? '') + (res.stderr ?? '');
+});
+
+When('install.js runs without a TTY', function () {
+  const res = spawnSync(process.execPath, [path.join(REPO, 'src', 'install.js'), path.join(REPO, 'src', 'cc-cream.js')], {
+    env: { ...process.env, HOME: this.home },
+    encoding: 'utf8',
+    timeout: 15000,
+  });
+  this.installerExit = res.status;
+  this.installerOut = (res.stdout ?? '') + (res.stderr ?? '');
+});
+
+Then('it exits zero and removes the statusLine', function () {
+  assert.equal(this.installerExit, 0, `install.js must exit 0, got ${this.installerExit}\n${this.installerOut}`);
+  assert.equal(readSandboxStatusLine(this), undefined,
+    `statusLine must be removed, got: ${JSON.stringify(readSandboxStatusLine(this))}`);
+});
+
+Then('it keeps the state file and prints how to remove it with --purge', function () {
+  assert.ok(fs.existsSync(stateFilePath(this)), 'state file must be kept in non-interactive uninstall');
+  assert.ok(/--purge/.test(this.installerOut), `output must mention --purge, got:\n${this.installerOut}`);
+});
+
+Then('it exits zero and leaves the foreign statusLine unchanged', function () {
+  assert.equal(this.installerExit, 0, `install.js must exit 0, got ${this.installerExit}\n${this.installerOut}`);
+  assert.deepEqual(readSandboxStatusLine(this), this.foreignStatusLine,
+    'a foreign statusLine must be left untouched in non-interactive setup');
+});
+
+Then("it exits zero and rewrites the statusLine to cc-cream's", function () {
+  assert.equal(this.installerExit, 0, `install.js must exit 0, got ${this.installerExit}\n${this.installerOut}`);
+  const sl = readSandboxStatusLine(this);
+  assert.ok(sl && typeof sl.command === 'string' && sl.command.includes('cc-cream'),
+    `statusLine must be cc-cream's, got: ${JSON.stringify(sl)}`);
+  assert.ok(sl.command.includes(path.join(this.home, '.claude', 'cc-cream')),
+    `non-interactive setup must rewrite to the home-copy entrypoint, got: ${sl.command}`);
+});
+
 // ===========================================================================
 // 24 — User-facing docs & disclosure
 // ===========================================================================
