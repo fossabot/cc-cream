@@ -1,5 +1,11 @@
 # cc-cream
 
+[![CI](https://img.shields.io/github/actions/workflow/status/bart-turczynski/cc-cream/ci.yml?branch=main&label=CI)](https://github.com/bart-turczynski/cc-cream/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/cc-cream)](https://www.npmjs.com/package/cc-cream)
+[![Socket Badge](https://socket.dev/api/badge/npm/package/cc-cream)](https://socket.dev/npm/package/cc-cream)
+[![install size](https://img.shields.io/bundlephobia/minzip/cc-cream)](https://bundlephobia.com/package/cc-cream)
+[![License: MIT](https://img.shields.io/npm/l/cc-cream)](https://github.com/bart-turczynski/cc-cream/blob/main/LICENSE)
+
 **C.R.E.A.M. — Cache Rules Everything Around Me.**
 
 A lightweight status-line tool for [Claude Code](https://claude.com/claude-code)
