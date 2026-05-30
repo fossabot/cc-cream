@@ -4,7 +4,7 @@ All notable changes to cc-cream are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0] — 2026-05-30
 
 ### Added
 - **`cc-cream-setup --check-config`** lints `~/.claude/cc-cream.json` and reports unknown keys and out-of-domain values — the fields the renderer silently falls back to defaults for. Exits non-zero when there's something to fix, so a typo'd key ("`ambre`", "`colour`") is no longer a silent no-op.
