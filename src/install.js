@@ -22,7 +22,7 @@ import { isEntrypoint } from './utils.js';
 export { writeFileAtomic } from './settings.js';
 
 const TRUST_NOTE =
-  'Claude Code must be trusted and possibly restarted for the status line to appear.';
+  'The bar appears on your next message — restart only an already-open session, and the workspace must be trusted.';
 
 // The statusLine command: a missing-file guard, then exec node on an ABSOLUTE
 // entrypoint. Both install modes use this one shape — only the entrypoint path
@@ -217,8 +217,13 @@ function ask(question) {
   }));
 }
 
-// Remove the cc-cream wiring (and, with consent, its install artifacts). Keeps
-// the user's config (~/.claude/cc-cream.json) unless `--purge` is passed.
+// Remove the cc-cream wiring and its throwaway scratch. The copied runtime
+// (~/.claude/cc-cream) and session state (~/.claude/cc-cream-state.json) are
+// regenerable — reinstalling recreates them — so they're always cleaned, no
+// prompt. (The old interactive artifact prompt was dead code: both the `!` bang
+// runner and the slash commands run non-TTY — CREAM-lznfgrap.) `--purge`
+// additionally removes the one file worth keeping by default: the user-authored
+// config (~/.claude/cc-cream.json).
 async function uninstall({ purge }) {
   const file = settingsPath();
   const settings = readSettings(file);
@@ -226,42 +231,42 @@ async function uninstall({ purge }) {
   for (const m of result.messages) console.log(m);
   if (result.changed) {
     writeFileAtomic(file, `${JSON.stringify(result.settings, null, 2)}\n`);
-    console.log(`\nUpdated ${file}.`);
+    console.log(`Updated ${file}.`);
   }
 
   const home = path.join(os.homedir(), '.claude');
-  const runtimeDir = path.join(home, 'cc-cream');
-  const stateFile = path.join(home, 'cc-cream-state.json');
   const configFile = path.join(home, 'cc-cream.json');
 
-  const artifacts = [runtimeDir, stateFile].filter((p) => fs.existsSync(p));
-  if (artifacts.length) {
-    let remove = purge;
-    if (!remove && process.stdin.isTTY) {
-      remove = await ask(`Also delete the copied runtime and session state?\n  ${artifacts.join('\n  ')}`);
-    }
-    if (remove) {
-      for (const p of artifacts) fs.rmSync(p, { recursive: true, force: true });
-      console.log('Removed runtime and state files.');
-    } else if (process.stdin.isTTY) {
-      console.log('Left runtime and state files in place.');
+  // Auto-clean regenerable scratch (not user data — no prompt).
+  const scratch = [path.join(home, 'cc-cream'), path.join(home, 'cc-cream-state.json')]
+    .filter((p) => fs.existsSync(p));
+  for (const p of scratch) fs.rmSync(p, { recursive: true, force: true });
+  if (scratch.length) console.log('Removed the copied runtime and session state.');
+
+  if (fs.existsSync(configFile)) {
+    if (purge) {
+      fs.rmSync(configFile, { force: true });
+      console.log(`Removed your config ${configFile}.`);
     } else {
-      // Non-interactive (e.g. run via the /cc-cream:uninstall slash command, which
-      // has no TTY): never block on a prompt. The statusLine — the thing that
-      // matters — is already removed; keep the artifacts (deletion is destructive)
-      // and say how to remove them.
-      console.log(`Left runtime and session state in place — no terminal to confirm deletion:\n  ${artifacts.join('\n  ')}`);
-      console.log('Re-run in a terminal, or pass --purge, to remove them.');
+      console.log(`Kept your config ${configFile} (pass --purge to remove it too).`);
     }
-  }
-  if (purge && fs.existsSync(configFile)) {
-    fs.rmSync(configFile, { force: true });
-    console.log(`Removed config ${configFile}.`);
-  } else if (fs.existsSync(configFile)) {
-    console.log(`Kept your config ${configFile} (pass --purge to remove it too).`);
   }
 
-  console.log('\nRestart Claude Code to drop the bar.');
+  printUninstallReceipt();
+}
+
+// The closing receipt. No Claude Code host removal path drops our statusLine OR
+// the version cache, so spell out what's gone, what the host leaves behind, and
+// the npm-free escape hatch (the lingering cache always has a working install.js).
+// See project memory cc-cream-plugin-lifecycle-findings.
+function printUninstallReceipt() {
+  console.log('\nDone — the bar disappears on your next message (restart an already-open session to drop it now).');
+  console.log('The host leaves the rest behind; to fully remove cc-cream:');
+  console.log('  • Plugin: /plugin uninstall cc-cream  then  /plugin marketplace remove cc-cream');
+  console.log('  • Version cache (never auto-removed): rm -rf ~/.claude/plugins/cache/cc-cream');
+  console.log('  • The /cc-cream:* slash commands linger in this session until you restart Claude Code.');
+  console.log('Already removed the plugin? This same uninstall lives in the cache:');
+  console.log('  node ~/.claude/plugins/cache/cc-cream/cc-cream/<version>/src/install.js --uninstall [--purge]');
 }
 
 // `cc-cream-setup --check-config`: lint ~/.claude/cc-cream.json against the
@@ -295,8 +300,119 @@ function checkConfigCli() {
   process.exit(1);
 }
 
+function listDirs(dir) {
+  try {
+    return fs.readdirSync(dir, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name)
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+function readJsonSafe(file) {
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+// `cc-cream-setup --status`: a read-only report of cc-cream's entire on-disk
+// footprint. Because no Claude Code host removal path drops our statusLine or GCs
+// the version cache (project memory cc-cream-plugin-lifecycle-findings), users
+// can't otherwise tell whether cc-cream fully went away — this command answers
+// "clean slate?" in one shot, and points out what the host left behind.
+function statusCli() {
+  const home = path.join(os.homedir(), '.claude');
+  const plugins = path.join(home, 'plugins');
+  const items = [];
+  const add = (label, present, detail) => items.push({ label, present, detail });
+
+  // statusLine wiring
+  const { state, value } = readSettingsFile(settingsPath());
+  if (!isSafeToWrite(state)) {
+    add('statusLine wiring', false, `settings.json unreadable (${state}) — not inspected`);
+  } else if (isCcCreamStatusLine(value.statusLine)) {
+    const ep = (value.statusLine.command.match(/\[ -f "([^"]+)"/) || [])[1] || '';
+    const ok = ep && fs.existsSync(ep);
+    add('statusLine wiring', true, ok
+      ? `belongs to cc-cream, pinned to ${ep}`
+      : `belongs to cc-cream, pinned to ${ep || '(unknown)'} — entrypoint MISSING (stale/ghost wiring)`);
+  } else if (value.statusLine) {
+    add('statusLine wiring', false, 'present but not cc-cream’s (left untouched)');
+  } else {
+    add('statusLine wiring', false, 'none');
+  }
+
+  // plugin cache versions (the host never GCs these)
+  const versions = listDirs(path.join(plugins, 'cache', 'cc-cream', 'cc-cream'));
+  add('plugin cache', versions.length > 0, versions.length
+    ? `${versions.length} version(s) [${versions.join(', ')}] — host never GCs these; rm to reclaim`
+    : 'none');
+
+  // marketplace clone
+  const clone = path.join(plugins, 'marketplaces', 'cc-cream');
+  add('marketplace clone', fs.existsSync(clone), fs.existsSync(clone) ? clone : 'none');
+
+  // registrations
+  const installed = readJsonSafe(path.join(plugins, 'installed_plugins.json'));
+  const isRegistered = !!installed?.plugins && typeof installed.plugins === 'object'
+    && Object.keys(installed.plugins).some((k) => k.startsWith('cc-cream@'));
+  add('plugin registration', isRegistered, isRegistered
+    ? 'listed in installed_plugins.json'
+    : 'not listed in installed_plugins.json');
+
+  const known = readJsonSafe(path.join(plugins, 'known_marketplaces.json'));
+  const knownMkt = !!known && typeof known === 'object' && Object.hasOwn(known, 'cc-cream');
+  add('marketplace registration', knownMkt, knownMkt
+    ? 'listed in known_marketplaces.json'
+    : 'not listed in known_marketplaces.json');
+
+  // auto-wire marker (plugin data dir, falling back to the config dir)
+  const markerDir = process.env.CLAUDE_PLUGIN_DATA || path.join(plugins, 'data', 'cc-cream-cc-cream');
+  const marker = [path.join(markerDir, 'cc-cream-autowire-done'), path.join(home, 'cc-cream-autowire-done')]
+    .find((p) => fs.existsSync(p));
+  add('auto-wire marker', !!marker, marker || 'none');
+
+  // session state
+  const stateFile = path.join(home, 'cc-cream-state.json');
+  if (fs.existsSync(stateFile)) {
+    const obj = readJsonSafe(stateFile);
+    const n = obj && typeof obj === 'object' ? Object.keys(obj).length : '?';
+    add('session state', true, `${n} session(s) in cc-cream-state.json`);
+  } else {
+    add('session state', false, 'none');
+  }
+
+  // config
+  const configFile = path.join(home, 'cc-cream.json');
+  add('config', fs.existsSync(configFile), fs.existsSync(configFile) ? configFile : 'none (using defaults)');
+
+  // manual runtime copy
+  const runtimeDir = path.join(home, 'cc-cream');
+  add('manual runtime copy', fs.existsSync(runtimeDir), fs.existsSync(runtimeDir) ? runtimeDir : 'none');
+
+  console.log('cc-cream footprint:');
+  for (const it of items) console.log(`  [${it.present ? 'x' : ' '}] ${it.label}: ${it.detail}`);
+
+  if (items.every((i) => !i.present)) {
+    console.log('\nClean slate — no cc-cream footprint found.');
+    return;
+  }
+  console.log(`\n${items.filter((i) => i.present).length} component(s) present. To remove everything:`);
+  console.log('  /cc-cream:uninstall (or the cache-path install.js --uninstall) clears the statusLine + scratch;');
+  console.log('  then /plugin uninstall cc-cream + /plugin marketplace remove cc-cream;');
+  console.log('  then rm -rf ~/.claude/plugins/cache/cc-cream (the host never removes it).');
+}
+
 async function main() {
   const args = process.argv.slice(2);
+  if (args.includes('--status')) {
+    statusCli();
+    return;
+  }
   if (args.includes('--check-config')) {
     checkConfigCli();
     return;
@@ -343,12 +459,15 @@ async function main() {
   }
 
   let result = plan(settings, planOpts);
-  // If a replace needs consent, ask now and re-plan with the answer.
+  // A foreign statusLine needs consent before we replace it. This first plan()
+  // pass is detection only — do NOT print its messages: they include a
+  // speculative "Declined …" (consent was absent) that would contradict a
+  // subsequent --force replace. Resolve consent, re-plan, then print the single
+  // coherent second-pass result below (CREAM-hpjebzes).
   if (!result.changed && result.needsConsent) {
-    for (const m of result.messages) console.log(m);
     let yes;
     if (process.stdin.isTTY) {
-      yes = await ask('Replace it with cc-cream?');
+      yes = await ask('Replace your existing statusLine with cc-cream?');
     } else {
       // Non-interactive (e.g. run via the /cc-cream:setup slash command, which has
       // no TTY): never block on a prompt. Safe to overwrite our OWN wiring (an
@@ -356,7 +475,7 @@ async function main() {
       // statusLine without a terminal or an explicit --force.
       yes = force || isCcCreamStatusLine(settings.statusLine);
       console.log(yes
-        ? 'Non-interactive: replacing the existing cc-cream statusLine.'
+        ? 'Non-interactive: replacing the existing statusLine with cc-cream’s.'
         : 'Non-interactive: left your existing statusLine unchanged. Re-run in a terminal, or pass --force, to replace it.');
     }
     result = plan(settings, { ...planOpts, consent: yes });

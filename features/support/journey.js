@@ -43,7 +43,47 @@ export function stageCache(home, version) {
   for (const dir of ['src', 'hooks', '.claude-plugin']) {
     fs.cpSync(path.join(REPO, dir), path.join(root, dir), { recursive: true });
   }
+  registerPlugin(home, version, root);
   return root;
+}
+
+const registryPath = (home) => path.join(configDirOf(home), 'plugins', 'installed_plugins.json');
+
+// Write the installed_plugins.json entry that `/plugin install` creates, so the
+// renderer's ghost-bar self-defense (which consults this registry to tell a live
+// install from an orphaned cache) sees cc-cream as installed. Keyed
+// `<plugin>@<marketplace>`, installPath = the version dir.
+function registerPlugin(home, version, installPath) {
+  const reg = registryPath(home);
+  let parsed = { version: 2, plugins: {} };
+  if (fs.existsSync(reg)) {
+    try {
+      parsed = JSON.parse(fs.readFileSync(reg, 'utf8'));
+    } catch {
+      parsed = { version: 2, plugins: {} };
+    }
+  }
+  if (!parsed.plugins || typeof parsed.plugins !== 'object') parsed.plugins = {};
+  parsed.plugins[`${PLUGIN}@${MARKETPLACE}`] = [{ scope: 'user', installPath, version }];
+  fs.mkdirSync(path.dirname(reg), { recursive: true });
+  fs.writeFileSync(reg, `${JSON.stringify(parsed, null, 2)}\n`);
+}
+
+// Simulate the REAL `/plugin uninstall cc-cream`: it removes the registry entry
+// (+ enabledPlugins + the data dir) but LEAVES the cache tree AND our statusLine
+// (verified 2026-05-30, probes B/E/F). This is the ghost-bar trap the `[ -f ]`
+// guard can't catch — the entrypoint still exists — which the renderer's registry
+// check (CREAM-uchemxln) is there to defuse.
+export function deregisterPlugin(home) {
+  const reg = registryPath(home);
+  if (!fs.existsSync(reg)) return;
+  const parsed = JSON.parse(fs.readFileSync(reg, 'utf8'));
+  if (parsed?.plugins && typeof parsed.plugins === 'object') {
+    for (const key of Object.keys(parsed.plugins)) {
+      if (key.startsWith(`${PLUGIN}@`)) delete parsed.plugins[key];
+    }
+  }
+  fs.writeFileSync(reg, `${JSON.stringify(parsed, null, 2)}\n`);
 }
 
 // Run the real SessionStart auto-setup hook from a staged cache.

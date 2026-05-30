@@ -49,6 +49,18 @@ Feature: Installation and uninstallation journey (CREAM-fxsusmgd)
     Then the orphaned statusLine command still lives in settings.json
     And running the wired status line command prints nothing and exits zero
 
+  # The realistic ghost-bar trap (CREAM-uchemxln): /plugin uninstall is PARTIAL —
+  # it deregisters cc-cream but LEAVES the cache, so the entrypoint still exists and
+  # the `[ -f … ]` guard can't fire. The renderer's own registry check is what stops
+  # the zombie bar here, proven end-to-end through the baked `sh -c` command.
+  Scenario: A partial /plugin uninstall (cache kept) self-suppresses the orphaned bar
+    Given a fresh Claude config dir
+    And the cc-cream plugin freshly installed in the cache at version "0.1.16"
+    And the auto-setup hook has wired the bar
+    When /plugin uninstall deregisters cc-cream but leaves the cache
+    Then the orphaned statusLine command still lives in settings.json
+    And running the wired status line command prints nothing and exits zero
+
   Scenario: cc-cream-setup --uninstall clears an orphaned statusLine with no cache (recovery)
     Given a fresh Claude config dir
     And the cc-cream plugin freshly installed in the cache at version "0.1.16"

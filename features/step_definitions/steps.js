@@ -6,9 +6,11 @@ import path from 'node:path';
 import { REPO, ENGINE, colorOf } from '../support/world.js';
 import { loadConfig, resolveTtl, countdown, patchSessionState } from '../../src/cc-cream.js';
 import { plan, planUninstall, statusLineCommand, writeFileAtomic } from '../../src/install.js';
+import { nextVersion, rollChangelog } from '../../scripts/release.mjs';
 
 // Path to the state file inside a scenario's sandbox HOME.
 const stateFilePath = (world) => path.join(world.home, '.claude', 'cc-cream-state.json');
+const configFilePath = (world) => path.join(world.home, '.claude', 'cc-cream.json');
 
 // ---- helpers --------------------------------------------------------------
 const get = (obj, dotted) => dotted.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
@@ -501,9 +503,10 @@ Then('settings.json is unchanged', function () {
   assert.deepEqual(this.result.settings, this.before);
 });
 
-Then('it states that Claude Code must be trusted and possibly restarted for the bar to appear', function () {
+Then('it explains the bar appears on the next message, noting trust and restarting an open session', function () {
   const joined = this.result.messages.join('\n').toLowerCase();
-  assert.ok(joined.includes('trusted'));
+  assert.ok(joined.includes('next message'), `setup note must lead with "next message", got: ${joined}`);
+  assert.ok(joined.includes('trust'));
   assert.ok(joined.includes('restart'));
 });
 
@@ -1621,15 +1624,64 @@ When('install.js runs without a TTY', function () {
   this.installerOut = (res.stdout ?? '') + (res.stderr ?? '');
 });
 
+When('install.js runs without a TTY but with --force', function () {
+  const res = spawnSync(process.execPath, [path.join(REPO, 'src', 'install.js'), path.join(REPO, 'src', 'cc-cream.js'), '--force'], {
+    env: { ...process.env, HOME: this.home },
+    encoding: 'utf8',
+    timeout: 15000,
+  });
+  this.installerExit = res.status;
+  this.installerOut = (res.stdout ?? '') + (res.stderr ?? '');
+});
+
+Then('the output does not claim it declined the change', function () {
+  assert.ok(!/declined/i.test(this.installerOut),
+    `--force output must not contain a contradictory "declined" line, got:\n${this.installerOut}`);
+});
+
 Then('it exits zero and removes the statusLine', function () {
   assert.equal(this.installerExit, 0, `install.js must exit 0, got ${this.installerExit}\n${this.installerOut}`);
   assert.equal(readSandboxStatusLine(this), undefined,
     `statusLine must be removed, got: ${JSON.stringify(readSandboxStatusLine(this))}`);
 });
 
-Then('it keeps the state file and prints how to remove it with --purge', function () {
-  assert.ok(fs.existsSync(stateFilePath(this)), 'state file must be kept in non-interactive uninstall');
-  assert.ok(/--purge/.test(this.installerOut), `output must mention --purge, got:\n${this.installerOut}`);
+Then('it auto-removes the session state file', function () {
+  assert.ok(!fs.existsSync(stateFilePath(this)),
+    `uninstall must auto-clean the regenerable session state, but it remains: ${stateFilePath(this)}`);
+});
+
+Given('a cc-cream config file on disk', function () {
+  fs.writeFileSync(configFilePath(this), JSON.stringify({ segments: { ctx: { on: true } } }, null, 2));
+});
+
+When('install.js --uninstall --purge runs without a TTY', function () {
+  const res = spawnSync(process.execPath, [path.join(REPO, 'src', 'install.js'), '--uninstall', '--purge'], {
+    env: { ...process.env, HOME: this.home },
+    encoding: 'utf8',
+    timeout: 15000,
+  });
+  this.installerExit = res.status;
+  this.installerOut = (res.stdout ?? '') + (res.stderr ?? '');
+});
+
+Then('it removes the user config', function () {
+  assert.ok(!fs.existsSync(configFilePath(this)),
+    `--purge must remove the user config, but it remains: ${configFilePath(this)}`);
+});
+
+Then('the output names the cache-path uninstall escape hatch', function () {
+  assert.ok(/plugins\/cache\/cc-cream\b[\s\S]*install\.js --uninstall/.test(this.installerOut),
+    `output must name the cache-path install.js --uninstall escape hatch, got:\n${this.installerOut}`);
+});
+
+Then('the output mentions removing the marketplace and the version cache', function () {
+  assert.ok(/marketplace remove/.test(this.installerOut), `output must mention /plugin marketplace remove, got:\n${this.installerOut}`);
+  assert.ok(/plugins\/cache\/cc-cream/.test(this.installerOut), `output must name the version cache path, got:\n${this.installerOut}`);
+});
+
+Then('the output says the slash commands linger until restart', function () {
+  assert.ok(/linger[\s\S]*restart/i.test(this.installerOut),
+    `output must say the slash commands linger until restart, got:\n${this.installerOut}`);
 });
 
 Then('it exits zero and leaves the foreign statusLine unchanged', function () {
@@ -1902,6 +1954,13 @@ Then('package.json version matches the latest CHANGELOG entry', function () {
     `package.json version (${pkg.version}) must match the latest CHANGELOG entry ([${match[1]}])`);
 });
 
+Then('.claude-plugin\\/plugin.json version matches package.json', function () {
+  const pkg = JSON.parse(fs.readFileSync(path.join(REPO, 'package.json'), 'utf8'));
+  const plugin = JSON.parse(fs.readFileSync(path.join(REPO, '.claude-plugin', 'plugin.json'), 'utf8'));
+  assert.equal(plugin.version, pkg.version,
+    `plugin.json version (${plugin.version}) must match package.json (${pkg.version})`);
+});
+
 Then('the README documents adding the marketplace with {string}', function (command) {
   const readme = fs.readFileSync(path.join(REPO, 'README.md'), 'utf8');
   assert.ok(readme.includes(command),
@@ -2093,4 +2152,192 @@ Then('the debug log names {string} among the hidden segments', function (id) {
 Then('the debug log does not change what is printed to stdout', function () {
   assert.equal(this.plain.trim(), 'Opus 4.7', `stdout must be unchanged by debug logging, got: ${JSON.stringify(this.plain)}`);
   assert.ok(!this.stdout.includes('hidden'), 'debug output must never leak into stdout');
+});
+
+// ===========================================================================
+// 32 — ghost-bar self-defense (orphaned plugin cache)
+// ===========================================================================
+const registryPath = (world) => path.join(world.pluginsDir, 'installed_plugins.json');
+
+Given('a session JSON that renders a bar', function () {
+  this.data = { model: { display_name: 'Opus 4.7' }, context_window: { used_percentage: 19, total_input_tokens: 38000 } };
+});
+
+// Reproduce a plugin install: copy the real engine into the host's versioned
+// plugin-cache path and run it from there, so import.meta.url is under
+// plugins/cache/ exactly as it is post-install. The registry it consults is
+// derived from that path, so seeding it lives under the same plugins dir.
+Given(/^the engine is installed in the plugin cache as version "([^"]+)"$/, function (version) {
+  const versionDir = path.join(this.home, '.claude', 'plugins', 'cache', 'cc-cream', 'cc-cream', version);
+  const destSrc = path.join(versionDir, 'src');
+  fs.mkdirSync(destSrc, { recursive: true });
+  for (const name of fs.readdirSync(path.join(REPO, 'src'))) {
+    if (name.endsWith('.js')) fs.copyFileSync(path.join(REPO, 'src', name), path.join(destSrc, name));
+  }
+  this.engineOverride = path.join(destSrc, 'cc-cream.js');
+  this.pluginCacheVersionDir = versionDir;
+  this.pluginsDir = path.join(this.home, '.claude', 'plugins');
+});
+
+Given('the host plugin registry file is absent', function () {
+  if (this.pluginsDir && fs.existsSync(registryPath(this))) fs.rmSync(registryPath(this));
+});
+
+Given('the host plugin registry file is corrupt', function () {
+  fs.writeFileSync(registryPath(this), 'not json{{{');
+});
+
+Given('the host plugin registry lists other plugins but not cc-cream', function () {
+  const reg = {
+    version: 2,
+    plugins: {
+      'fp@fiberplane-claude-code-plugins': [
+        { installPath: path.join(this.pluginsDir, 'cache', 'fiberplane-claude-code-plugins', 'fp', '0.14.0'), version: '0.14.0' },
+      ],
+    },
+  };
+  fs.writeFileSync(registryPath(this), JSON.stringify(reg, null, 2));
+});
+
+Given('the host plugin registry lists cc-cream', function () {
+  const reg = {
+    version: 2,
+    plugins: {
+      'cc-cream@cc-cream': [{ installPath: this.pluginCacheVersionDir, version: '0.2.0' }],
+    },
+  };
+  fs.writeFileSync(registryPath(this), JSON.stringify(reg, null, 2));
+});
+
+// ===========================================================================
+// 33 — footprint status report (cc-cream-setup --status)
+// ===========================================================================
+Given('a full cc-cream footprint on disk', function () {
+  const claude = path.join(this.home, '.claude');
+  const plugins = path.join(claude, 'plugins');
+  const versionDir = path.join(plugins, 'cache', 'cc-cream', 'cc-cream', '0.2.0');
+  fs.mkdirSync(path.join(versionDir, 'src'), { recursive: true });
+  fs.mkdirSync(path.join(plugins, 'marketplaces', 'cc-cream'), { recursive: true });
+  fs.mkdirSync(path.join(plugins, 'data', 'cc-cream-cc-cream'), { recursive: true });
+  fs.mkdirSync(path.join(claude, 'cc-cream'), { recursive: true });
+
+  const ep = path.join(versionDir, 'src', 'cc-cream.js');
+  fs.writeFileSync(ep, '// engine');
+  writeSandboxSettings(this, { statusLine: { type: 'command', command: statusLineCommand(process.execPath, ep), refreshInterval: 60 } });
+  fs.writeFileSync(path.join(plugins, 'installed_plugins.json'),
+    JSON.stringify({ version: 2, plugins: { 'cc-cream@cc-cream': [{ installPath: versionDir, version: '0.2.0' }] } }, null, 2));
+  fs.writeFileSync(path.join(plugins, 'known_marketplaces.json'),
+    JSON.stringify({ 'cc-cream': { source: { source: 'github', repo: 'bart-turczynski/cc-cream' } } }, null, 2));
+  fs.writeFileSync(path.join(plugins, 'data', 'cc-cream-cc-cream', 'cc-cream-autowire-done'), '');
+  fs.writeFileSync(stateFilePath(this), JSON.stringify({ sessA: { x: 1 }, sessB: { y: 2 } }));
+  fs.writeFileSync(configFilePath(this), JSON.stringify({ segments: {} }));
+});
+
+Given('a cc-cream statusLine pinned to a missing entrypoint', function () {
+  const ep = path.join(this.home, '.claude', 'plugins', 'cache', 'cc-cream', 'cc-cream', '0.0.9', 'src', 'cc-cream.js');
+  writeSandboxSettings(this, { statusLine: { type: 'command', command: statusLineCommand(process.execPath, ep), refreshInterval: 60 } });
+});
+
+When('cc-cream-setup --status runs', function () {
+  const res = spawnSync(process.execPath, [path.join(REPO, 'src', 'install.js'), '--status'], {
+    env: { ...process.env, HOME: this.home, CLAUDE_PLUGIN_DATA: '' },
+    encoding: 'utf8',
+    timeout: 15000,
+  });
+  this.statusExit = res.status;
+  this.statusOut = (res.stdout ?? '') + (res.stderr ?? '');
+});
+
+Then('the status report exits zero', function () {
+  assert.equal(this.statusExit, 0, `--status must exit 0, got ${this.statusExit}\n${this.statusOut}`);
+});
+
+Then('the report says it is a clean slate', function () {
+  assert.ok(/clean slate/i.test(this.statusOut), `expected a clean-slate verdict, got:\n${this.statusOut}`);
+});
+
+Then('the report does not say it is a clean slate', function () {
+  assert.ok(!/clean slate/i.test(this.statusOut), `expected NO clean-slate verdict, got:\n${this.statusOut}`);
+});
+
+Then("the report lists the statusLine wiring as cc-cream's", function () {
+  assert.ok(/statusLine wiring: belongs to cc-cream/.test(this.statusOut),
+    `expected the statusLine to be reported as cc-cream's, got:\n${this.statusOut}`);
+});
+
+Then('the report lists the plugin cache versions', function () {
+  assert.ok(/plugin cache: \d+ version/.test(this.statusOut),
+    `expected the plugin cache versions to be listed, got:\n${this.statusOut}`);
+});
+
+Then('the report lists the session state, config, and manual runtime copy', function () {
+  assert.ok(/session state: \d+ session/.test(this.statusOut), `expected session state listed, got:\n${this.statusOut}`);
+  assert.ok(/config: .*cc-cream\.json/.test(this.statusOut), `expected config listed, got:\n${this.statusOut}`);
+  assert.ok(/manual runtime copy: .*cc-cream/.test(this.statusOut), `expected manual runtime listed, got:\n${this.statusOut}`);
+});
+
+Then('the report flags the statusLine entrypoint as missing', function () {
+  assert.ok(/statusLine wiring:.*MISSING/.test(this.statusOut),
+    `expected a MISSING entrypoint flag, got:\n${this.statusOut}`);
+});
+
+// ===========================================================================
+// 34 — release tooling (scripts/release.mjs pure helpers)
+// ===========================================================================
+Given('the current package version is {string}', function (v) {
+  this.curVersion = v;
+});
+
+When('I compute the next version for {string}', function (bump) {
+  this.nextVersion = nextVersion(this.curVersion, bump);
+});
+
+Then('the next version is {string}', function (expected) {
+  assert.equal(this.nextVersion, expected);
+});
+
+Given('a CHANGELOG with entries under Unreleased:', function (doc) {
+  this.changelog = doc;
+});
+
+Given('a CHANGELOG with an empty Unreleased section:', function (doc) {
+  this.changelog = doc;
+});
+
+When('I roll the CHANGELOG to {string} dated {string}', function (version, date) {
+  this.rolled = rollChangelog(this.changelog, version, date);
+});
+
+When('I roll the CHANGELOG expecting it to fail', function () {
+  try {
+    rollChangelog(this.changelog, '0.3.0', '2026-06-01');
+    this.rollError = null;
+  } catch (err) {
+    this.rollError = err;
+  }
+});
+
+Then('the rolled CHANGELOG\'s first version heading is {string} dated {string}', function (version, date) {
+  const first = this.rolled.match(/^##\s*\[(\d+\.\d+\.\d+)\][^\n]*/m);
+  assert.ok(first, `expected a version heading, got:\n${this.rolled}`);
+  assert.equal(first[1], version, `first version heading must be ${version}, got ${first[1]}`);
+  assert.ok(first[0].includes(date), `first version heading must carry the date ${date}, got: ${first[0]}`);
+});
+
+Then('the rolled CHANGELOG keeps an empty Unreleased section on top', function () {
+  // The [Unreleased] heading must sit above the new version heading with no body.
+  const between = this.rolled.split('## [Unreleased]')[1].split(/\n## \[/)[0].trim();
+  assert.equal(between, '', `[Unreleased] must be empty after a roll, got: ${JSON.stringify(between)}`);
+  assert.ok(this.rolled.indexOf('## [Unreleased]') < this.rolled.search(/^##\s*\[\d/m),
+    '[Unreleased] must stay above the first version heading');
+});
+
+Then('the entry {string} now sits under the {word} heading', function (entry, version) {
+  const section = this.rolled.split(`## [${version}]`)[1].split(/\n## \[/)[0];
+  assert.ok(section.includes(entry), `"${entry}" must sit under [${version}], got:\n${section}`);
+});
+
+Then('it reports there is nothing to release', function () {
+  assert.ok(this.rollError, 'expected rollChangelog to throw on an empty Unreleased section');
+  assert.ok(/nothing/i.test(this.rollError.message), `error must mention nothing to release, got: ${this.rollError.message}`);
 });

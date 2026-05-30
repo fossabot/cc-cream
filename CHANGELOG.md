@@ -4,6 +4,22 @@ All notable changes to cc-cream are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **`cc-cream-setup --status` — a read-only footprint report.** Because no Claude Code host removal path drops our `statusLine` or garbage-collects the version cache, users couldn't easily tell whether cc-cream had fully gone away. `--status` reports the whole footprint in one shot: the `statusLine` wiring (flagging a stale/ghost line whose entrypoint is missing), every cached plugin version, the marketplace clone + both registrations, the auto-wire marker, session state, config, and the manual runtime copy — with a "clean slate" verdict when nothing remains and removal guidance when something does (CREAM-zgdcbmfj).
+
+### Fixed
+- **The status bar no longer zombies after the plugin is uninstalled.** No Claude Code host removal path deletes our `statusLine` *or* the version cache: `/plugin uninstall` is partial (it deregisters the plugin but leaves the cache tree and our `statusLine`), so the entrypoint still exists and the `[ -f … ] || exit 0` guard can never fire — the bar kept rendering every session, with no in-product way out (`/cc-cream:uninstall` deregisters with the plugin). The renderer now defends itself: when it detects it's running **from the plugin cache** while cc-cream is **absent from `~/.claude/plugins/installed_plugins.json`**, it exits 0 silently. The check costs one tiny read and runs *only* on the plugin-cache path — manual/npm installs skip it entirely. A corrupt/unreadable registry is treated as "still installed" so a transient glitch can't suppress a live bar (CREAM-uchemxln).
+- **Non-interactive `--force` no longer prints a contradictory "Declined … then replaced" receipt.** The installer's consent path printed the detection-only first plan pass — including a speculative "Declined — your existing statusLine is unchanged." — and then replaced the line anyway. It now resolves consent first and prints a single coherent result (CREAM-hpjebzes).
+
+### Changed
+- **Setup/uninstall copy now matches how the bar actually appears.** The status line shows on the **next message** of a new session — no restart needed; a restart only matters for an already-open session. The installer note, the `SessionStart` hook message, and the uninstall receipt were reworded accordingly (dropping the misleading "Restart Claude Code" framing) (CREAM-wvtiftfw).
+- **`/cc-cream:uninstall` is now self-sufficient.** It auto-cleans the regenerable scratch (the copied runtime and `cc-cream-state.json`) with no prompt — the old interactive artifact prompt was dead code, since both the `!` bang runner and the slash commands run without a TTY. `--purge` additionally removes the user-authored `~/.claude/cc-cream.json`, and `commands/uninstall.md` now forwards `$ARGUMENTS` so `/cc-cream:uninstall --purge` actually reaches the script. The closing receipt enumerates the final state and the leftovers the host *doesn't* clean — the version cache (`rm -rf ~/.claude/plugins/cache/cc-cream`), `/plugin marketplace remove`, the slash commands that linger until restart, and the npm-free cache-path escape hatch (CREAM-lznfgrap, CREAM-wvtiftfw).
+
+### Internal
+- **One-command releases (`npm run release <patch|minor|major>`).** A new `scripts/release.mjs` bumps every version location in lockstep — `package.json`, `package-lock.json`, and `.claude-plugin/plugin.json` — and rolls the CHANGELOG's `[Unreleased]` section into a dated `## [x.y.z]` heading, gates on the test suite, then commits + tags (and pushes + creates the GitHub Release with `--publish`). It removes the hand-syncing every prior release required, where `npm version` touched only the first two and the version-match gate punished the drift. A new CI gate (`features/25`) now also asserts `plugin.json`'s version matches `package.json`, so that manifest can no longer go stale.
+
 ## [0.2.0] — 2026-05-30
 
 ### Added
