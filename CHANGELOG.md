@@ -4,6 +4,14 @@ All notable changes to cc-cream are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **The plugin status line no longer resolves its version with a shell glob.** The wired command was `ls … | grep -E … | sort -V | tail -1` over the plugin cache, run on every render — it depended on GNU `sort -V` (not guaranteed in the status-line subprocess, notably on macOS) and reverse-engineered Claude Code's undocumented cache layout. `${CLAUDE_PLUGIN_ROOT}` doesn't expand in the status-line command context, so the command can't discover the current version itself. Instead the command now bakes the current version's **absolute** `cc-cream.js` path, and the `SessionStart` hook — which *does* receive `${CLAUDE_PLUGIN_ROOT}` — re-pins it after a `/plugin update`. Both install modes now share one command shape (`[ -f "<entrypoint>" ] || exit 0; exec "<node>" "<entrypoint>"`); the `[ -f … ]` guard preserves the silent exit-0 when the plugin cache is deleted out from under a stale line.
+
+### Internal
+- **Settings.json read/parse/atomic-write logic is shared** between the installer and the `SessionStart` hook via a new `src/settings.js`, instead of a copy in each.
+
 ## [0.1.18] — 2026-05-29
 
 ### Security

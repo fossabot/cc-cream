@@ -14,6 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import readline from 'node:readline';
+import { fileURLToPath } from 'node:url';
 import { isSafeToWrite, readSettings as readSettingsFile, writeFileAtomic } from './settings.js';
 import { isEntrypoint } from './utils.js';
 
@@ -22,29 +23,32 @@ export { writeFileAtomic } from './settings.js';
 const TRUST_NOTE =
   'Claude Code must be trusted and possibly restarted for the status line to appear.';
 
-// The cache-glob auto-update command (docs/RELEASE_PLAN.md "Auto-update mechanism").
+// The statusLine command: a missing-file guard, then exec node on an ABSOLUTE
+// entrypoint. Both install modes use this one shape — only the entrypoint path
+// differs (plugin cache vs the copied home runtime).
+//
 // `nodePath` is the ABSOLUTE node binary, resolved once at setup time — the
 // statusLine subprocess may not inherit the user's PATH, so a bare `node` is
-// unsafe. The `-d .../*/` glob yields directory paths with a trailing slash, so
-// `src/cc-cream.js` concatenates directly. The `grep` keeps ONLY semver-named
-// dirs (e.g. `0.1.10/`) before `sort -V | tail -1` picks the highest — without
-// it, a non-numeric cache dir (a git-sha install like `c83650b6360f/`) sorts
-// last and pins the bar to whatever version that happens to be, defeating
-// auto-update. With it, `/plugin update` is applied live with no re-run of setup.
+// unsafe. `entrypoint` is the absolute path to cc-cream.js.
 //
-// The resolved dir is captured in `$d` and GUARDED with `[ -z "$d" ] && exit 0`:
-// when the glob matches nothing — the state left behind if a user runs
-// `/plugin uninstall cc-cream` WITHOUT first running `/cc-cream:uninstall`, so a
-// stale statusLine outlives the deleted cache — the command degrades to a silent
-// exit 0 instead of running a bare relative `src/cc-cream.js` that crashes with
+// Why no version resolution here: `${CLAUDE_PLUGIN_ROOT}` does NOT expand in the
+// statusLine command context (only in hook/MCP/command contexts — verified), so
+// the command can't discover the current plugin version at render time. Instead
+// the SessionStart hook — which DOES get `${CLAUDE_PLUGIN_ROOT}` — bakes the
+// current version's absolute path here and re-pins it after `/plugin update`.
+//
+// The `[ -f "<entrypoint>" ] || exit 0` guard degrades to a silent exit 0 when
+// the entrypoint is gone — the state left behind if a user runs `/plugin
+// uninstall cc-cream` WITHOUT first running `/cc-cream:uninstall`, so a stale
+// statusLine outlives the deleted cache. Without it, node would crash with
 // MODULE_NOT_FOUND on every render. "Degrade, never crash" (CLAUDE.md). `exec`
 // replaces the shell so stdin/stdout pass straight through to the renderer.
-export function autoUpdateCommand(nodePath) {
-  return `d="$(ls -1d "\${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/plugins/cache/*/cc-cream/*/ 2>/dev/null | grep -E '/[0-9]+(\\.[0-9]+)+/$' | sort -V | tail -1)"; [ -z "$d" ] && exit 0; exec "${nodePath}" "\${d}src/cc-cream.js"`;
+export function statusLineCommand(nodePath, entrypoint) {
+  return `[ -f "${entrypoint}" ] || exit 0; exec "${nodePath}" "${entrypoint}"`;
 }
 
 // `desired` is considered already installed if it matches the planned command
-// verbatim (so switching strategy or node path re-plans), at refreshInterval 60.
+// verbatim (so a changed version path or node path re-plans), at refreshInterval 60.
 function isInstalled(existing, command) {
   return (
     !!existing &&
@@ -93,21 +97,19 @@ export function planUninstall(settings) {
 }
 
 // Decide what to do. Returns { settings, changed, messages, needsConsent }.
-// `consent` is the user's yes/no when an existing statusLine must be replaced.
+// `consent` is the user's yes/no when a FOREIGN statusLine must be replaced.
 //
-// Two command strategies:
-//   - manual (default): `node <entrypoint>` pointing at the copied-to-home runtime.
-//   - plugin: the cache-glob auto-update command, using the absolute `nodePath`.
-//     Pass `{ plugin: true, nodePath }` to select it; the plugin cache IS the
-//     install, so no files are copied to home in that mode.
-export function plan(settings, { entrypoint, consent, plugin = false, nodePath } = {}) {
+// Both install modes produce the same command shape (statusLineCommand); only
+// the entrypoint differs:
+//   - manual (default): the copied-to-home runtime (~/.claude/cc-cream/cc-cream.js).
+//   - plugin: the versioned plugin-cache entrypoint (install.js's sibling).
+// Pass `{ entrypoint, nodePath }` for either.
+export function plan(settings, { entrypoint, consent, nodePath } = {}) {
   const s = settings && typeof settings === 'object' ? settings : {};
   const existing = s.statusLine;
   const messages = [];
 
-  const command = plugin
-    ? autoUpdateCommand(nodePath)
-    : `node ${entrypoint}`;
+  const command = statusLineCommand(nodePath, entrypoint);
   const desired = { type: 'command', command, refreshInterval: 60 };
   // Preserve any user padding — it shrinks the 80-col budget (PRD §7).
   if (existing && typeof existing === 'object' && existing.padding !== undefined) {
@@ -119,9 +121,11 @@ export function plan(settings, { entrypoint, consent, plugin = false, nodePath }
     return { settings: s, changed: false, messages, needsConsent: false };
   }
 
-  // An existing (different) statusLine must be confirmed before replacing.
-  const hasExisting = existing && typeof existing === 'object';
-  if (hasExisting) {
+  // A FOREIGN statusLine must be confirmed before replacing. Replacing our OWN
+  // out-of-date line (e.g. re-pinning to a new version after /plugin update)
+  // needs no consent — it's ours to maintain.
+  const hasForeign = existing && typeof existing === 'object' && !isCcCreamStatusLine(existing);
+  if (hasForeign) {
     messages.push('An existing statusLine is configured.');
     messages.push('Replace it with cc-cream?');
     if (consent !== true) {
@@ -132,7 +136,7 @@ export function plan(settings, { entrypoint, consent, plugin = false, nodePath }
 
   messages.push('Setting the cc-cream statusLine.');
   messages.push(TRUST_NOTE);
-  return { settings: { ...s, statusLine: desired }, changed: true, messages, needsConsent: hasExisting };
+  return { settings: { ...s, statusLine: desired }, changed: true, messages, needsConsent: hasForeign };
 }
 
 // ---------------------------------------------------------------------------
@@ -273,18 +277,21 @@ async function main() {
   const file = settingsPath();
   const settings = readSettings(file);
 
-  // planOpts holds whatever the chosen strategy needs to build its command.
+  // planOpts holds the entrypoint + node path the command bakes in.
   let planOpts;
   if (plugin) {
-    // Plugin mode: the plugin cache IS the install — do NOT copy to home. The
-    // command self-resolves the latest cached version on every render.
-    planOpts = { plugin: true, nodePath: resolveNodePath() };
+    // Plugin mode: the plugin cache IS the install — do NOT copy to home. Point
+    // the statusLine at this install.js's sibling cc-cream.js, i.e. the current
+    // version's absolute path in the plugin cache. The SessionStart hook re-pins
+    // it after a /plugin update (the command can't self-resolve the version).
+    const entrypoint = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'cc-cream.js');
+    planOpts = { entrypoint, nodePath: resolveNodePath() };
   } else {
     // Manual / GitHub mode: copy the runtime into ~/.claude/cc-cream and point
-    // the statusLine at that copied entrypoint.
+    // the statusLine at that copied (stable) entrypoint.
     const sourceFile = positional[0]
       ? path.resolve(positional[0])
-      : path.resolve(path.dirname(new URL(import.meta.url).pathname), 'cc-cream.js');
+      : path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'cc-cream.js');
 
     if (!fs.existsSync(sourceFile)) {
       console.error(`Error: cc-cream.js not found at ${sourceFile}`);
@@ -296,7 +303,7 @@ async function main() {
     if (copyRuntimeFiles(sourceFile, destDir)) {
       console.log(`Copied cc-cream runtime files to ${destDir}`);
     }
-    planOpts = { entrypoint: dest };
+    planOpts = { entrypoint: dest, nodePath: resolveNodePath() };
   }
 
   let result = plan(settings, planOpts);
