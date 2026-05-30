@@ -136,31 +136,45 @@ Plugin users — two steps, **in this order** (Claude Code can't clean
 from the cache):
 ```
 /cc-cream:uninstall          # 1. removes the statusLine wiring (run this FIRST)
-/plugin uninstall cc-cream   # 2. drops the plugin from the cache
+/plugin uninstall cc-cream   # 2. drops the plugin
 ```
+`/cc-cream:uninstall` also auto-cleans cc-cream's regenerable scratch (the copied
+runtime and session-state file); add `--purge` (`/cc-cream:uninstall --purge`) to
+also delete your `~/.claude/cc-cream.json` config. The bar disappears on your next
+message — restart an already-open session to drop it immediately.
 
-> **Order matters.** `/cc-cream:uninstall` lives inside the plugin, so once you
-> run `/plugin uninstall` it's gone. The status line itself degrades to nothing
-> if the cache is missing (it won't error), but the now-inert `statusLine` block
-> lingers in `settings.json`. To clear it after the plugin is already gone, run
-> the npm bin (no global install needed):
+> **Order matters — but you're covered if you get it wrong.** `/cc-cream:uninstall`
+> lives inside the plugin, so once you run `/plugin uninstall` it's gone. Neither
+> host command clears the `statusLine` block *or* the version cache. The renderer
+> notices when it's running from a cache the host no longer lists as installed and
+> **self-suppresses**, so the bar stops on the next session even though the inert
+> `statusLine` line still lingers in `settings.json`.
+>
+> To clear that leftover line once the plugin is gone, the **guaranteed** route is
+> the copy of the uninstaller still in the cache — npm-free and always present:
+> ```bash
+> node ~/.claude/plugins/cache/cc-cream/cc-cream/<version>/src/install.js --uninstall
+> # add --purge to also remove your config
+> ```
+> The npm bin does the same job, but **not always**: a *freshly published* version
+> is blocked by npm's min-package-age safe-chain guard (it reports "command not
+> found") until it ages in, so use it only if the cache route isn't handy:
 > ```bash
 > npx -y -p cc-cream cc-cream-setup --uninstall
 > ```
-> or remove the `statusLine` key from `~/.claude/settings.json` by hand.
+> You can always remove the `statusLine` key from `~/.claude/settings.json` by hand.
 
 npm / manual users:
 ```bash
-cc-cream-setup --uninstall                 # npm (add --purge to also remove runtime + config)
+cc-cream-setup --uninstall                 # npm (add --purge to also remove the config)
 node cc-cream/src/install.js --uninstall   # manual clone
 ```
 
 Uninstall removes the `statusLine` block **only if it is cc-cream's** — a
-statusLine you wired for something else is left untouched. In a terminal it asks
-before deleting the copied runtime and session-state files; run **non-interactively**
-(as the `/cc-cream:uninstall` slash command does) it leaves those artifacts in
-place — pass `--purge` to remove them and your `~/.claude/cc-cream.json` config.
-Restart Claude Code to clear the bar.
+statusLine you wired for something else is left untouched. It always cleans the
+regenerable scratch (the copied runtime and session state, both recreated on a
+reinstall); `--purge` additionally removes your `~/.claude/cc-cream.json` config.
+The bar clears on your next message (restart an already-open session to drop it now).
 
 Likewise, `cc-cream-setup` run non-interactively will overwrite an existing
 *cc-cream* statusLine but never a foreign one — pass `--force` to replace
