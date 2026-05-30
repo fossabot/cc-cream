@@ -1994,3 +1994,38 @@ Then('it keeps the newest prior session and drops the oldest', function () {
   assert.ok(Object.hasOwn(sessions, `session-${this.seedCount - 1}`), 'the newest prior session was dropped');
   assert.ok(!Object.hasOwn(sessions, 'session-0'), 'the oldest session was not evicted');
 });
+
+// ===========================================================================
+// 29 — golden render snapshot (CREAM-twlrcxdk): a fully-controlled, deterministic
+// full-bar render that locks holistic row assembly before the pure-render
+// refactor. Everything time-dependent is pinned: a fixed clock, an in-sandbox
+// transcript at age 0 (TTL anchor = now → ttl:01:00), and sub-day rate-limit
+// resets (no timezone-dependent weekday/clock countdown).
+// ===========================================================================
+Given('a fully-specified subscriber session at a fixed time', function () {
+  this.now = 1748563200000; // off-peak in America/Los_Angeles (no "peak" segment)
+  this.data = {
+    session_id: 'snapshot',
+    model: { display_name: 'Sonnet 4.6' },
+    context_window: {
+      used_percentage: 15,
+      total_input_tokens: 31000,
+      current_usage: { cache_read_input_tokens: 38, cache_creation_input_tokens: 12, input_tokens: 50 },
+    },
+    cost: { total_cost_usd: 0.1 },
+    transcript_path: this.makeTranscript(0),
+    rate_limits: {
+      five_hour: { used_percentage: 22, resets_at: (this.now + 90 * 60000) / 1000 },
+      seven_day: { used_percentage: 36, resets_at: (this.now + 200 * 60000) / 1000 },
+    },
+  };
+});
+
+When('the engine runs', function () {
+  this.run();
+});
+
+Then('the rendered bar exactly matches the golden snapshot:', function (expected) {
+  assert.equal(this.plain.replace(/\n$/, ''), expected.replace(/\n$/, ''),
+    `rendered bar drifted from the golden snapshot.\n--- got ---\n${this.plain}\n--- want ---\n${expected}\n`);
+});
