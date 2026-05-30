@@ -6,6 +6,8 @@ All notable changes to cc-cream are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.3.1] — 2026-05-30
+
 ### Fixed
 - **`/cc-cream:setup` and `/cc-cream:uninstall` now actually show their result.** A `!` bang command's output is injected as model *context*, not displayed to the user (Claude Code's design), and the command bodies never told the model to surface it — so the install/uninstall *worked* but the model just replied "ready, what's next?" and the receipt (including how to clear the lingering cache) was never shown, on every model. Both command files now instruct the model to print the command output verbatim.
 
