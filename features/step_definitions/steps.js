@@ -2094,3 +2094,58 @@ Then('the debug log does not change what is printed to stdout', function () {
   assert.equal(this.plain.trim(), 'Opus 4.7', `stdout must be unchanged by debug logging, got: ${JSON.stringify(this.plain)}`);
   assert.ok(!this.stdout.includes('hidden'), 'debug output must never leak into stdout');
 });
+
+// ===========================================================================
+// 32 — ghost-bar self-defense (orphaned plugin cache)
+// ===========================================================================
+const registryPath = (world) => path.join(world.pluginsDir, 'installed_plugins.json');
+
+Given('a session JSON that renders a bar', function () {
+  this.data = { model: { display_name: 'Opus 4.7' }, context_window: { used_percentage: 19, total_input_tokens: 38000 } };
+});
+
+// Reproduce a plugin install: copy the real engine into the host's versioned
+// plugin-cache path and run it from there, so import.meta.url is under
+// plugins/cache/ exactly as it is post-install. The registry it consults is
+// derived from that path, so seeding it lives under the same plugins dir.
+Given(/^the engine is installed in the plugin cache as version "([^"]+)"$/, function (version) {
+  const versionDir = path.join(this.home, '.claude', 'plugins', 'cache', 'cc-cream', 'cc-cream', version);
+  const destSrc = path.join(versionDir, 'src');
+  fs.mkdirSync(destSrc, { recursive: true });
+  for (const name of fs.readdirSync(path.join(REPO, 'src'))) {
+    if (name.endsWith('.js')) fs.copyFileSync(path.join(REPO, 'src', name), path.join(destSrc, name));
+  }
+  this.engineOverride = path.join(destSrc, 'cc-cream.js');
+  this.pluginCacheVersionDir = versionDir;
+  this.pluginsDir = path.join(this.home, '.claude', 'plugins');
+});
+
+Given('the host plugin registry file is absent', function () {
+  if (this.pluginsDir && fs.existsSync(registryPath(this))) fs.rmSync(registryPath(this));
+});
+
+Given('the host plugin registry file is corrupt', function () {
+  fs.writeFileSync(registryPath(this), 'not json{{{');
+});
+
+Given('the host plugin registry lists other plugins but not cc-cream', function () {
+  const reg = {
+    version: 2,
+    plugins: {
+      'fp@fiberplane-claude-code-plugins': [
+        { installPath: path.join(this.pluginsDir, 'cache', 'fiberplane-claude-code-plugins', 'fp', '0.14.0'), version: '0.14.0' },
+      ],
+    },
+  };
+  fs.writeFileSync(registryPath(this), JSON.stringify(reg, null, 2));
+});
+
+Given('the host plugin registry lists cc-cream', function () {
+  const reg = {
+    version: 2,
+    plugins: {
+      'cc-cream@cc-cream': [{ installPath: this.pluginCacheVersionDir, version: '0.2.0' }],
+    },
+  };
+  fs.writeFileSync(registryPath(this), JSON.stringify(reg, null, 2));
+});

@@ -4,6 +4,11 @@ All notable changes to cc-cream are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **The status bar no longer zombies after the plugin is uninstalled.** No Claude Code host removal path deletes our `statusLine` *or* the version cache: `/plugin uninstall` is partial (it deregisters the plugin but leaves the cache tree and our `statusLine`), so the entrypoint still exists and the `[ -f … ] || exit 0` guard can never fire — the bar kept rendering every session, with no in-product way out (`/cc-cream:uninstall` deregisters with the plugin). The renderer now defends itself: when it detects it's running **from the plugin cache** while cc-cream is **absent from `~/.claude/plugins/installed_plugins.json`**, it exits 0 silently. The check costs one tiny read and runs *only* on the plugin-cache path — manual/npm installs skip it entirely. A corrupt/unreadable registry is treated as "still installed" so a transient glitch can't suppress a live bar (CREAM-uchemxln).
+
 ## [0.2.0] — 2026-05-30
 
 ### Added

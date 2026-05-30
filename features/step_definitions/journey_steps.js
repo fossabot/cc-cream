@@ -12,6 +12,7 @@ import {
   MODEL_NAME,
   bakedEntrypoint,
   configDirOf,
+  deregisterPlugin,
   readSettings,
   removePluginCache,
   removeVersion,
@@ -92,6 +93,12 @@ When('the user runs \\/cc-cream:uninstall', function () {
 
 When('\\/plugin uninstall removes the plugin cache', function () {
   removePluginCache(this.journeyHome);
+});
+
+// The realistic /plugin uninstall: deregister cc-cream but LEAVE the cache (and
+// the statusLine) behind — the ghost-bar trap (CREAM-uchemxln).
+When('\\/plugin uninstall deregisters cc-cream but leaves the cache', function () {
+  deregisterPlugin(this.journeyHome);
 });
 
 // /cc-cream:setup runs install.js in plugin mode from the cache. One definition
