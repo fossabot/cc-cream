@@ -1310,6 +1310,20 @@ Then(/^it invokes src\/install\.js in plugin mode rather than writing settings\.
     'setup.md must not itself write settings.json');
 });
 
+const instructsToShowOutput = (file) => {
+  const src = fs.readFileSync(path.join(REPO, 'commands', file), 'utf8');
+  assert.ok(/\b(show|display)\b/i.test(src) && /\boutput\b/i.test(src) && /\bverbatim\b/i.test(src),
+    `${file} must instruct the model to show the command output verbatim, got:\n${src}`);
+};
+
+Then('commands\\/setup.md instructs the model to show the command output verbatim', function () {
+  instructsToShowOutput('setup.md');
+});
+
+Then('commands\\/uninstall.md instructs the model to show the command output verbatim', function () {
+  instructsToShowOutput('uninstall.md');
+});
+
 Then('it shows a brief one-line note, not a verbose body', function () {
   const src = this.setupMd ?? fs.readFileSync(path.join(REPO, 'commands', 'setup.md'), 'utf8');
   const body = src.replace(/^---\n[\s\S]*?\n---\n/, ''); // strip frontmatter

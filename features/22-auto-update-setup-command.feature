@@ -27,6 +27,14 @@ Feature: Setup command bakes the current version's absolute path (CREAM-kpsjregt
     And it invokes src/install.js in plugin mode rather than writing settings.json itself
     And it shows a brief one-line note, not a verbose body
 
+  # A `!` bang's stdout is injected as model CONTEXT, not shown to the user (Claude
+  # Code docs). Without an explicit instruction the model just acknowledges and the
+  # install/uninstall receipt is never displayed — seen on Haiku AND Sonnet. Both
+  # command bodies must tell the model to surface the output (CREAM-rkxwseym v5).
+  Scenario: The setup and uninstall commands tell the model to display the receipt
+    Then commands/setup.md instructs the model to show the command output verbatim
+    And commands/uninstall.md instructs the model to show the command output verbatim
+
   Scenario: An existing statusLine is still confirmed before replacing
     Given settings.json already has a statusLine command
     When the setup command runs
