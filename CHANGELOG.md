@@ -6,6 +6,9 @@ All notable changes to cc-cream are documented here. Format follows
 
 ## [Unreleased]
 
+### Changed
+- **Renamed the self-hosted marketplace from `cc-cream` to `bart-turczynski`.** The marketplace and the plugin previously shared the name `cc-cream`, producing the doubled reference `cc-cream@cc-cream`. Naming the marketplace after its owner makes it a suite container for future plugins and reads naturally as `cc-cream@bart-turczynski`. Only the marketplace's identity changes — the plugin name, the GitHub repo slug (`bart-turczynski/cc-cream`, still used in `/plugin marketplace add`), and the unqualified `/plugin install cc-cream` are unaffected. Existing installs must remove and re-add the marketplace to pick up the new identity.
+
 ## [0.3.3] — 2026-05-30
 
 ### Changed
