@@ -27,6 +27,7 @@ archive/
 
 # Internal specs & working notes (kept locally, not in the public repo or shipped product)
 docs/
+tmp/
 
 # Fiberplane local issue tracking
 .fp/
